@@ -1,0 +1,3 @@
+#! /bin/sh
+./codeball2018-linux/codeball2018 --no-countdown --p2 keyboard &
+sleep 2.5
