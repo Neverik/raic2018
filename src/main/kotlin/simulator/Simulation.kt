@@ -5,19 +5,34 @@ import kotlin.math.*
 
 // import kotlin.random.Random
 
-class Simulation(var ball: Model.MBall, var robots: Array<Model.MRobot>, var nitroPacks: Array<Model.MNitroPack>, var rules: Rules) {
+data class Simulation(
+        var ball: Model.MBall,
+        var robots: Array<Model.MRobot>,
+        var nitroPacks: Array<Model.MNitroPack>,
+        var rules: Rules,
+        var currentTick: Int,
+        var ballDistance: Double = rules.arena.depth / 3) {
     private val deltaTime = 1.0 / (rules.TICKS_PER_SECOND * rules.MICROTICKS_PER_TICK)
 
     constructor(game: Game, rules: Rules) : this(
             Model.MBall(game.ball, rules),
             Array(game.robots.size) { Model.MRobot(game.robots[it], rules) },
             Array(game.nitro_packs.size) { Model.MNitroPack(game.nitro_packs[it]) },
-            rules)
+            rules,
+            game.current_tick)
 
     fun tick(simulateRobots: Boolean = true): Boolean {
+        var goalScored = false
+
+        if(simulateRobots) {
+            for (robot in robots) {
+                robot.calculateActivityByDistance(ball, ballDistance)
+            }
+        }
+
         for (i in 0 until rules.MICROTICKS_PER_TICK) {
             if(update(simulateRobots)) {
-                return true
+                goalScored = true
             }
         }
 
@@ -31,17 +46,15 @@ class Simulation(var ball: Model.MBall, var robots: Array<Model.MRobot>, var nit
             }
         }
 
-        return false
+        currentTick++
+        return goalScored
     }
 
     private fun update(simulateRobots: Boolean): Boolean {
-        if (abs(ball.position.z) > rules.arena.depth / 2 + ball.radius) {
-            return true
-        }
         // robots.shuffle()
         if(simulateRobots) {
             for (robot in robots) {
-                if (robot.touch) {
+                if (robot.touch && robot.active) {
                     var targetVelocity = robot.action.targetVelocity.clamp(rules.ROBOT_MAX_GROUND_SPEED)
                     targetVelocity -= robot.touchNormal * (robot.touchNormal dot targetVelocity)
                     val targetVelocityChange = targetVelocity - robot.velocity
@@ -55,7 +68,7 @@ class Simulation(var ball: Model.MBall, var robots: Array<Model.MRobot>, var nit
                                 .clamp(targetVelocityChange.length)
                     }
                 }
-                if (robot.action.useNitro) {
+                if (robot.action.useNitro && robot.active) {
                     val targetVelocityChange = (
                             robot.action.targetVelocity
                                     - robot.velocity)
@@ -101,6 +114,7 @@ class Simulation(var ball: Model.MBall, var robots: Array<Model.MRobot>, var nit
         }
 
         ball.collideWithArena()
+        val goalScored = abs(ball.position.z) > rules.arena.depth / 2 + ball.radius
 
         if(simulateRobots) {
             for (robot in robots) {
@@ -120,6 +134,47 @@ class Simulation(var ball: Model.MBall, var robots: Array<Model.MRobot>, var nit
             }
         }
 
-        return false
+        return goalScored
+    }
+
+    fun setAction(id: Int, action: Model.AAction) {
+        for(robot in robots) {
+            if(robot.id == id) {
+                robot.action = action
+            }
+        }
+    }
+
+    val reward: Double
+        get() {
+            return (ball.position.z / rules.arena.depth / 2 + 0.5) * 100 + (Array(rules.team_size) {
+                (robots.filter { i -> i.isTeammate }[it].position - ball.position).length
+            }.sumByDouble { it } - Array(rules.team_size) {
+                (robots.filter { i -> !i.isTeammate }[it].position - ball.position).length
+            }.sumByDouble { it }) +
+                    (if(ball.position.z > rules.arena.depth / 2 + ball.radius) 1000 else 0) -
+                    (if(ball.position.z < rules.arena.depth / 2 - ball.radius) 1000 else 0)
+        }
+
+    fun toGame(): Game {
+        val game = Game()
+
+        game.robots = Array(robots.size) {robots[it].toRobot()}
+
+        game.ball = Ball()
+        game.ball.x = ball.position.x
+        game.ball.y = ball.position.y
+        game.ball.z = ball.position.z
+        game.ball.velocity_x = ball.velocity.x
+        game.ball.velocity_y = ball.velocity.y
+        game.ball.velocity_z = ball.velocity.z
+        game.ball.radius = ball.radius
+
+        game.current_tick = currentTick
+
+        game.players = arrayOf()
+        game.nitro_packs = arrayOf()
+
+        return game
     }
 }

@@ -1,21 +1,19 @@
 package simulator
 
 import model.Arena
+import java.security.cert.CollectionCertStoreParameters
 import kotlin.math.*
 
 
-// Very evil, places collision on stack
-typealias Collision = DoubleArray
+class Collision(var normal: Vec3D, var distance: Double) {
+    fun minOf(other: Collision) {
+        if (distance > other.distance) {
+            normal = other.normal
+            distance = other.distance
+        }
+    }
+}
 
-inline val Collision.distance get() = this[3]
-inline val Collision.normal get() = this.sliceArray(0..2)
-
-@Suppress("FunctionName")
-fun Collision(distance: Double, normal: Vec3D) =
-        doubleArrayOf(normal[0], normal[1], normal[2], distance)
-
-fun minCollision(a: Collision, b: Collision) =
-        if(a.distance > b.distance) b else a
 
 object ArenaCollision {
     fun danToArena(point: Vec3D, arena: Arena): Collision {
@@ -59,30 +57,52 @@ object ArenaCollision {
 
     private fun danToArenaQuarter(point: Vec3D, arena: Arena): Collision {
         // Ground
-        var dan = danToPlane(point, Vec3D(0.0, 0.0, 0.0), Vec3D(0.0, 1.0, 0.0))
+        val dan = danToPlane(point, Vec3D(), Vec3D(0.0, 1.0))
 
-        // Ceiling
-        dan = minCollision(dan, danToPlane(point, Vec3D(0.0, arena.height, 0.0), Vec3D(0.0, -1.0, 0.0)))
+        ceiling(point, dan, arena)
+        sideX(point, dan, arena)
+        sideZGoal(point, dan, arena)
+        sideZ(point, dan, arena)
+        sideXAndCeilingGoal(point, dan, arena)
+        goalBackCorners(point, dan, arena)
+        corner(point, dan, arena)
+        goalOuterCorner(point, dan, arena)
+        goalInsideTopCorners(point, dan, arena)
+        bottomCorners(point, dan, arena)
+        ceilingCorners(point, dan, arena)
 
-        // Side x
-        dan = minCollision(dan, danToPlane(point, Vec3D(arena.width / 2, 0.0, 0.0), Vec3D(-1.0, 0.0, 0.0)))
+        return dan
+    }
 
+    private fun ceiling(point: Vec3D, dan: Collision, arena: Arena) {
+        dan.minOf(danToPlane(point, Vec3D(0.0, arena.height), Vec3D(0.0, -1.0)))
+    }
+
+    private fun sideX(point: Vec3D, dan: Collision, arena: Arena) {
+        dan.minOf(danToPlane(point, Vec3D(arena.width / 2), Vec3D(-1.0)))
+    }
+
+    private fun sideZGoal(point: Vec3D, dan: Collision, arena: Arena) {
         // Side z (goal)
-        dan = minCollision(dan, danToPlane(
+        dan.minOf(danToPlane(
                 point,
                 Vec3D(0.0, 0.0, (arena.depth / 2) + arena.goal_depth),
                 Vec3D(0.0, 0.0, -1.0)))
+    }
 
+    private fun sideZ(point: Vec3D, dan: Collision, arena: Arena) {
         // Side z
-        val vvec = Vec3D(point.x, point.y, 0.0) -
+        val v = Vec3D(point.x, point.y) -
                 Vec3D(
                         (arena.goal_width / 2) - arena.goal_top_radius,
-                        arena.goal_height - arena.goal_top_radius,
-                        0.0)
+                        arena.goal_height - arena.goal_top_radius)
         if (point.x >= (arena.goal_width / 2) + arena.goal_side_radius
                 || point.y >= arena.goal_height + arena.goal_side_radius
-                || (vvec.x > 0 && vvec.y > 0 && vvec.length >= arena.goal_top_radius + arena.goal_side_radius))
-            dan = minCollision(dan, danToPlane(
+                || (
+                        v.x > 0
+                                && v.y > 0
+                                && v.length >= arena.goal_top_radius + arena.goal_side_radius))
+            dan.minOf(danToPlane(
                     point,
                     Vec3D(
                             0.0,
@@ -92,92 +112,103 @@ object ArenaCollision {
                             0.0,
                             0.0,
                             -1.0)))
+    }
 
+    private fun sideXAndCeilingGoal(point: Vec3D, dan: Collision, arena: Arena) {
         // Side x & ceiling (goal)
-        if (point.z >= (arena.depth / 2) + arena.goal_side_radius) {
+        if (point.z >= arena.depth / 2 + arena.goal_side_radius) {
             // x
-            dan = minCollision(dan, danToPlane(
+            dan.minOf(danToPlane(
                     point,
-                    Vec3D(arena.goal_width / 2, 0.0, 0.0),
-                    Vec3D(-1.0, 0.0, 0.0)))
+                    Vec3D(arena.goal_width / 2),
+                    Vec3D(-1.0)))
             // y
-            dan = minCollision(dan, danToPlane(
+            dan.minOf(danToPlane(
                     point,
-                    Vec3D(0.0, arena.goal_height, 0.0),
-                    Vec3D(0.0, -1.0, 0.0)))
+                    Vec3D(0.0, arena.goal_height),
+                    Vec3D(0.0, -1.0)))
         }
+    }
 
+    private fun goalBackCorners(point: Vec3D, dan: Collision, arena: Arena) {
         // Goal back corners
-        if (point.z > (arena.depth / 2) + arena.goal_depth - arena.bottom_radius)
-            dan = minCollision(dan, danToSphereInner(
+        if (point.z > arena.depth / 2 + arena.goal_depth - arena.bottom_radius)
+            dan.minOf(danToSphereInner(
                     point,
                     Vec3D(
                             clamp(
                                     point.x,
-                                    arena.bottom_radius - (arena.goal_width / 2),
-                                    (arena.goal_width / 2) - arena.bottom_radius
+                                    arena.bottom_radius - arena.goal_width / 2,
+                                    arena.goal_width / 2 - arena.bottom_radius
                             ),
                             clamp(
                                     point.y,
                                     arena.bottom_radius,
                                     arena.goal_height - arena.goal_top_radius),
-                            (arena.depth / 2) + arena.goal_depth - arena.bottom_radius),
+                            arena.depth / 2 + arena.goal_depth - arena.bottom_radius),
                     arena.bottom_radius))
+    }
 
+    private fun corner(point: Vec3D, dan: Collision, arena: Arena) {
         // Corner
-        if (point.x > (arena.width / 2) - arena.corner_radius && point.z > (arena.depth / 2) - arena.corner_radius)
-            dan = minCollision(dan, danToSphereInner(
+        if (point.x > arena.width / 2 - arena.corner_radius
+                && point.z > arena.depth / 2 - arena.corner_radius)
+            dan.minOf(danToSphereInner(
                     point,
                     Vec3D(
-                            (arena.width / 2) - arena.corner_radius,
+                            arena.width / 2 - arena.corner_radius,
                             point.y,
-                            (arena.depth / 2) - arena.corner_radius
+                            arena.depth / 2 - arena.corner_radius
                     ),
                     arena.corner_radius))
+    }
 
+    private fun goalOuterCorner(point: Vec3D, dan: Collision, arena: Arena) {
         // Goal outer corner
-        if (point.z < (arena.depth / 2) + arena.goal_side_radius) {
+        if (point.z < arena.depth / 2 + arena.goal_side_radius) {
             // Side x
-            if (point.x < (arena.goal_width / 2) + arena.goal_side_radius)
-                dan = minCollision(dan, danToSphereOuter(
+            if (point.x < arena.goal_width / 2 + arena.goal_side_radius)
+                dan.minOf(danToSphereOuter(
                         point,
                         Vec3D(
-                                (arena.goal_width / 2) + arena.goal_side_radius,
+                                arena.goal_width / 2 + arena.goal_side_radius,
                                 point.y,
-                                (arena.depth / 2) + arena.goal_side_radius
+                                arena.depth / 2 + arena.goal_side_radius
                         ),
                         arena.goal_side_radius))
             // Ceiling
             if (point.y < arena.goal_height + arena.goal_side_radius)
-                dan = minCollision(dan, danToSphereOuter(
+                dan.minOf(danToSphereOuter(
                         point,
                         Vec3D(
                                 point.x,
                                 arena.goal_height + arena.goal_side_radius,
-                                (arena.depth / 2) + arena.goal_side_radius
+                                arena.depth / 2 + arena.goal_side_radius
                         ),
                         arena.goal_side_radius))
             // Top corner
-            varZ o = Vec3D(
-                    (arena.goal_width / 2) - arena.goal_top_radius,
-                    arena.goal_height - arena.goal_top_radius,
-                    0.0
+            var o = Vec3D(
+                    arena.goal_width / 2 - arena.goal_top_radius,
+                    arena.goal_height - arena.goal_top_radius
             )
-            val vec = Vec3D(point.x, point.y, 0.0) - o
-            if (vec.x > 0 && vec.y > 0)
+            val vec = point.copy(z = 0.0) - o
+            if (vec.x > 0 && vec.y > 0) {
                 o += vec.normalized * (arena.goal_top_radius + arena.goal_side_radius)
-            dan = minCollision(dan, danToSphereOuter(
-                    point,
-                    Vec3D(o.x, o.y, (arena.depth / 2) + arena.goal_side_radius),
-                    arena.goal_side_radius))
+                dan.minOf(danToSphereOuter(
+                        point,
+                        Vec3D(o.x, o.y, (arena.depth / 2) + arena.goal_side_radius),
+                        arena.goal_side_radius))
+            }
         }
+    }
 
+    private fun goalInsideTopCorners(point: Vec3D, dan: Collision, arena: Arena) {
         // Goal inside top corners
-        if (point.z > (arena.depth / 2) + arena.goal_side_radius
+        if (point.z > arena.depth / 2 + arena.goal_side_radius
                 && point.y > arena.goal_height - arena.goal_top_radius) {
             // Side x
             if (point.x > (arena.goal_width / 2) - arena.goal_top_radius)
-                dan = minCollision(dan, danToSphereInner(
+                dan.minOf(danToSphereInner(
                         point,
                         Vec3D(
                                 (arena.goal_width / 2) - arena.goal_top_radius,
@@ -187,7 +218,7 @@ object ArenaCollision {
                         arena.goal_top_radius))
             // Side z
             if (point.z > (arena.depth / 2) + arena.goal_depth - arena.goal_top_radius)
-                dan = minCollision(dan, danToSphereInner(
+                dan.minOf(danToSphereInner(
                         point,
                         Vec3D(
                                 point.x,
@@ -196,15 +227,17 @@ object ArenaCollision {
                         ),
                         arena.goal_top_radius))
         }
+    }
 
+    private fun bottomCorners(point: Vec3D, dan: Collision, arena: Arena) {
         // Bottom corners
         if (point.y < arena.bottom_radius) {
             // Side x
-            if (point.x > (arena.width / 2) - arena.bottom_radius)
-                dan = minCollision(dan, danToSphereInner(
+            if (point.x > arena.width / 2 - arena.bottom_radius)
+                dan.minOf(danToSphereInner(
                         point,
                         Vec3D(
-                                (arena.width / 2) - arena.bottom_radius,
+                                arena.width / 2 - arena.bottom_radius,
                                 arena.bottom_radius,
                                 point.z
                         ),
@@ -212,17 +245,17 @@ object ArenaCollision {
             // Side z
             if (point.z > (arena.depth / 2) - arena.bottom_radius
                     && point.x >= (arena.goal_width / 2) + arena.goal_side_radius)
-                dan = minCollision(dan, danToSphereInner(
+                dan.minOf(danToSphereInner(
                         point,
                         Vec3D(
                                 point.x,
                                 arena.bottom_radius,
-                                (arena.depth / 2) - arena.bottom_radius
+                                arena.depth / 2 - arena.bottom_radius
                         ),
                         arena.bottom_radius))
             // Side z (goal)
             if (point.z > (arena.depth / 2) + arena.goal_depth - arena.bottom_radius)
-                dan = minCollision(dan, danToSphereInner(
+                dan.minOf(danToSphereInner(
                         point,
                         Vec3D(
                                 point.x,
@@ -233,14 +266,13 @@ object ArenaCollision {
             // Goal outer corner
             var o = Vec3D(
                     (arena.goal_width / 2) + arena.goal_side_radius,
-                    (arena.depth / 2) + arena.goal_side_radius,
-                    0.0
+                    (arena.depth / 2) + arena.goal_side_radius
             )
-            val v = Vec3D(point.x, point.z, 0.0) - o
+            val v = Vec3D(point.x, point.z) - o
             if (v.x < 0 && v.y < 0
                     && v.length < arena.goal_side_radius + arena.bottom_radius) {
                 o += v.normalized * (arena.goal_side_radius + arena.bottom_radius)
-                dan = minCollision(dan, danToSphereInner(
+                dan.minOf(danToSphereInner(
                         point,
                         Vec3D(o.x, arena.bottom_radius, o.y),
                         arena.bottom_radius))
@@ -248,7 +280,7 @@ object ArenaCollision {
             // Side x (goal)
             if (point.z >= (arena.depth / 2) + arena.goal_side_radius
                     && point.x > (arena.goal_width / 2) - arena.bottom_radius)
-                dan = minCollision(dan, danToSphereInner(
+                dan.minOf(danToSphereInner(
                         point,
                         Vec3D(
                                 (arena.goal_width / 2) - arena.bottom_radius,
@@ -261,27 +293,28 @@ object ArenaCollision {
                     && point.z > (arena.depth / 2) - arena.corner_radius) {
                 val cornerO = Vec3D(
                         (arena.width / 2) - arena.corner_radius,
-                        (arena.depth / 2) - arena.corner_radius,
-                        0.0
+                        (arena.depth / 2) - arena.corner_radius
                 )
-                var n = Vec3D(point.x, point.z, 0.0) - cornerO
+                var n = Vec3D(point.x, point.z) - cornerO
                 val dist = n.length
                 if (dist > arena.corner_radius - arena.bottom_radius) {
                     n /= dist
                     val o2 = cornerO + n * (arena.corner_radius - arena.bottom_radius)
-                    dan = minCollision(dan, danToSphereInner(
+                    dan.minOf(danToSphereInner(
                             point,
                             Vec3D(o2.x, arena.bottom_radius, o2.y),
                             arena.bottom_radius))
                 }
             }
         }
+    }
 
+    private fun ceilingCorners(point: Vec3D, dan: Collision, arena: Arena) {
         // Ceiling corners
         if (point.y > arena.height - arena.top_radius) {
             // Side x
             if (point.x > (arena.width / 2) - arena.top_radius)
-                dan = minCollision(dan, danToSphereInner(
+                dan.minOf(danToSphereInner(
                         point,
                         Vec3D(
                                 (arena.width / 2) - arena.top_radius,
@@ -291,7 +324,7 @@ object ArenaCollision {
                         arena.top_radius))
             // Side z
             if (point.z > (arena.depth / 2) - arena.top_radius)
-                dan = minCollision(dan, danToSphereInner(
+                dan.minOf(danToSphereInner(
                         point,
                         Vec3D(
                                 point.x,
@@ -305,22 +338,19 @@ object ArenaCollision {
                     && point.z > (arena.depth / 2) - arena.corner_radius) {
                 val cornerO = Vec3D(
                         (arena.width / 2) - arena.corner_radius,
-                        (arena.depth / 2) - arena.corner_radius,
-                        0.0
+                        (arena.depth / 2) - arena.corner_radius
                 )
-                val dv = Vec3D(point.x, point.z, 0.0) - cornerO
+                val dv = Vec3D(point.x, point.z) - cornerO
                 if (dv.length > arena.corner_radius - arena.top_radius) {
                     val n = dv.normalized
                     val o2 = cornerO + n * (arena.corner_radius - arena.top_radius)
-                    dan = minCollision(dan, danToSphereInner(
+                    dan.minOf(danToSphereInner(
                             point,
                             Vec3D(o2.x, arena.height - arena.top_radius, o2.y),
                             arena.top_radius))
                 }
             }
         }
-
-        return dan
     }
 }
 
