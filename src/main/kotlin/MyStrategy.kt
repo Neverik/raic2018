@@ -20,7 +20,7 @@ class MyStrategy : Strategy {
     private val jumpDelay = 20
 
     override fun act(me: Robot, rules: Rules, game: Game, action: Action) {
-        /*val sim = Simulation(game, rules)
+        val sim = Simulation(game, rules)
 
         val simBall = Simulation(game, rules)
         simBall.rules.MICROTICKS_PER_TICK = lowresSimMicro
@@ -106,8 +106,7 @@ class MyStrategy : Strategy {
             baseline(me, rules, game, action, lowResBallPos)
         }
 
-        lastAction = action*/
-        baseline(me, rules, game, action, Model.MBall(game.ball, rules).position)
+        lastAction = action
     }
 
     private fun baseline(me: Robot, rules: Rules, game: Game, action: Action, ballPrediction: Vec3D) {

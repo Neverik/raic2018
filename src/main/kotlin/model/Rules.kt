@@ -6,7 +6,7 @@ class Rules {
 
     var max_tick_count: Int = 0
     var arena: Arena = Arena()
-    var team_size: Int = 2
+    var team_size: Int = 1
     var seed: Long = 0
     var ROBOT_MIN_RADIUS: Double = 1.0
     var ROBOT_MAX_RADIUS: Double = 1.05

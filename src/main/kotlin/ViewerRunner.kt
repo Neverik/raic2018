@@ -19,6 +19,7 @@ class CodeBallViewer: PApplet() {
     private val zoomSpeed = 7f
     private lateinit var arenaShape: PShape
     private val arenaPath = "/home/neverik/IdeaProjects/raic2018/arena.obj"
+    private lateinit var arena: PGraphics
 
     override fun settings() {
         size(600, 600, PConstants.P3D)
@@ -26,7 +27,9 @@ class CodeBallViewer: PApplet() {
 
     override fun setup() {
         simulation.ballDistance = Double.POSITIVE_INFINITY
+        simulation.rules.MICROTICKS_PER_TICK = 100
         arenaShape = loadShape(arenaPath)
+        arena = createGraphics(width, height, P3D)
     }
 
     override fun draw() {
@@ -44,7 +47,24 @@ class CodeBallViewer: PApplet() {
             simulation = Simulation(reset(rules), rules)
         }
 
-        background(230)
+        arena.beginDraw()
+
+        arena.scale(1f, -1f)
+        arena.translate(width / 2f, height / 2f)
+        arena.noStroke()
+        arena.translate(0f, -height.toFloat(), zoom)
+        arena.scale(width / rules.arena.depth.toFloat())
+        arena.rotateX(rotation.x)
+        arena.rotateY(rotation.y + PConstants.HALF_PI)
+        arena.background(230)
+
+        arenaShape.setFill(color(150f, 150f, 255f, 200f))
+        arena.shape(arenaShape)
+
+        arena.endDraw()
+        arena.loadPixels()
+
+        background(arena)
 
         scale(1f, -1f)
         translate(width / 2f, -height / 2f)
@@ -56,15 +76,6 @@ class CodeBallViewer: PApplet() {
         rotateX(rotation.x)
         rotateY(rotation.y)
 
-        directionalLight(126f, 126f, 126f, 0f, 1f, 0f)
-        directionalLight(126f, 126f, 126f, -1f, 0f, 0f)
-        directionalLight(126f, 126f, 126f, 1f, 1f, 0f)
-        ambientLight(55f, 55f, 55f)
-        ambient(255)
-        arenaShape.setFill(color(55f, 155f, 255f))
-        shape(arenaShape)
-
-        hint(DISABLE_DEPTH_TEST)
         for (r in game.robots) {
             if(r.is_teammate) {
                 fill(0f, 255f, 0f)
